@@ -14,6 +14,7 @@ var jwt = require('jsonwebtoken');
 var cors = require('cors');
 var User = require('./Users');
 var Movie = require('./serverReq');
+var Review = require('./MovReview');
 var app = express();
 
 app.use(cors());
@@ -89,10 +90,9 @@ router.post('/signin', function (req, res) {
 router.route('/movies')
     //getting movies request to get the movies.
     .get(authJwtController.isAuthenticated, function (req, res) {
-    //.get(function (req, res) {
-        Movie.find({Title: req.body.Title},
-            function(err, var1){
-
+        //.get(function (req, res) {
+        if(req.query.movieId != null){
+            Movie.find({_id: mongoose.Types.ObjectId(req.query.movieId)}, function(err, data){
                 if(err){
                     //if (req.get('Content-Type')) {
                     //res = res.type(req.get('Content-Type'));
@@ -100,13 +100,38 @@ router.route('/movies')
                     //var o = getJSONObjectForMovieRequirement(req);
                     //res.json(o);
                     res.status(400).json({message: "Request not valid..."});}
-
-                else if(var1.length === 0) {  res.status(400).json({var1: var1, message: "Movie not found, empty list..." });}
+                else if(data.length === 0) {res.status(400).json({message: "Movie not found, empty list..."});}
                 else{
-                    //status: 200, message: "GET movies", headers: req.headers, query: req.query, env: process.env.UNIQUE_KEY
-                    res.json({var1: var1, message: "Movie entered has been found."});
+                    if(req.query.reviews === "True"){
+                        Movie.aggregate([
+                            {$match: {'_id': mongoose.Types.ObjectId(req.query.movieId)}},
+                                {
+                                $lookup:{
+                                    from: 'reviews', localField: '_id', foreignField: 'Movie_ID', as: 'Reviews'}}],
+
+                            function(err, doc) {
+                            if(err){console.log(" "); res.send(err);}
+                            else{console.log(doc); res.json(doc); }});}
+
+                    else{res.json(data);}
                 }});
-        })
+        }else{
+            Movie.find({}, function(err, doc){
+                if(err){res.json({error: err});}
+
+                else{
+                    if(req.query.reviews === "True"){
+                        Movie.aggregate([
+                            {
+                                $lookup:{
+                                    from: 'reviews', localField: '_id', foreignField: 'Movie_ID', as: 'Reviews'}}],
+
+                            function(err, data) {if(err){res.send(err);}
+                            else{res.json(data);}});}
+
+                    else{res.json(doc);}}
+            })
+        }})
     //putting movies request to update movies
     .put(authJwtController.isAuthenticated, function(req,res) {
     //.put(function(req,res) {
@@ -172,6 +197,36 @@ router.route('/movies')
             else{res.json({message: "movie deleted from our DB..."});
                 //status: 200, message: "movie deleted", headers: req.headers, query: req.query, env: process.env.UNIQUE_KEY
             }
+        });
+    });
+//review route method used to post data about reviews.
+router.route('/reviews')
+    .post(authJwtController.isAuthenticated, function(req,res){
+        const usertoken = req.headers.authorization;
+        const token = usertoken.split(' ');
+        const var3 = jwt.verify(token[1], process.env.SECRET_KEY);
+        Movie.find({_id: req.body.Movie_ID}, function(err, data){
+            if(err){res.status(400).json({message: "Cannot perform task..."});}
+            else if (data != null){
+                let rev = new Review({Name: var3.username, Review: req.body.Review, Rating: req.body.Rating, Movie_ID: req.body.Movie_ID});
+                console.log(req.body);
+                rev.save(function(err){
+                    if(err) {res.json({message: err});}
+                    else{
+                        Review.find({Movie_ID: req.body.Movie_ID}, function (err, vars2) {
+                            if(err){res.status(400).json({message: "Something went wrong..."});}
+                            else{
+                                var vars1 = 0;
+                                vars2.forEach(function (review) {vars1 += review.Rating; console.log(review);});
+                                vars1 = vars1 /vars2.length;
+                                Movie.update({ _id: req.body.Movie_ID}, {$set: {averageRating: vars1}},
+                                        function (err, doc){
+                                        if (err){res.json({error: err});}
+                                        else if(doc != null){res.json({msg: "Success, Review Added."});}
+                                    });}
+                        });}
+                });}
+            else{res.json({failure: "No such Movie..."});}
         });
     });
 
